@@ -34,7 +34,7 @@ from myIt.utils import (
     get_bucket_url, convert_timestamp, getCurrentDatetime, jsonFromOrderedDict, databasePorts, networkServices,
     preprodTags
 )
-from myIt.models import (
+from .myIt.models import (
     ApplicationCVE, ApplicationCVELocation, DomainStatusType, Ip, RelatedDomain, Host, ScopeType, Scores, Application, LeakedCredentials, PhishingNormDetails, ServiceCVE,
     Technology, Whois, DigitalRisk, Service, ApiDiscovery, PasteData, NetBlock, CVEState, ScopeStatusSend,
     NetbloclOwnershipType, ObservationsAndInsights, ServiceStateSend

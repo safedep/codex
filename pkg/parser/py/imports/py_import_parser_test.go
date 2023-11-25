@@ -8,6 +8,7 @@ import (
 
 	tree_sitter "github.com/smacker/go-tree-sitter"
 	"github.com/smacker/go-tree-sitter/python"
+	"github.com/stretchr/testify/assert"
 )
 
 const PY_CODE_BLOCK = `import math
@@ -141,35 +142,13 @@ func TestQuery(t *testing.T) {
 		t.Fatalf("Error parsing file: %v", err)
 	}
 
-	// Define a sample query
-	query := `
-	(import_statement
-		name: (dotted_name 
-				(identifier) @import_module
-		)
-	)
-	
-	(import_from_statement
-		 module_name: (dotted_name) @from_module
-		 name: (dotted_name 
-				(identifier) @import_submodule
-		)
-	)
-	
-	(import_from_statement
-		 module_name: (relative_import) @import_prefix
-		 name: (dotted_name 
-				(identifier) @import_submodule
-		)
-	)	
-	
-	`
-
 	// Execute the query on the parsed code
-	err = parsedCode.Query(query)
+	modules, err := parsedCode.ExtractModules()
 	if err != nil {
 		t.Fatalf("Error executing query: %v", err)
 	}
+
+	assert.Greater(t, len(modules), 0)
 }
 
 // Helper function to create a temporary test file with Python code

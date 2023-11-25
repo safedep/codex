@@ -65,6 +65,58 @@ func TestFindPyModules(t *testing.T) {
 	}
 }
 
+func TestRelativePath(t *testing.T) {
+	tests := []struct {
+		basePath   string
+		fullPath   string
+		expected   string
+		shouldFail bool
+	}{
+		{
+			basePath:   "/root",
+			fullPath:   "/root/subroot/subdir/file.txt",
+			expected:   "subroot/subdir/file.txt",
+			shouldFail: false,
+		},
+		{
+			basePath:   "/root",
+			fullPath:   "/root/file.txt",
+			expected:   "file.txt",
+			shouldFail: false,
+		},
+		{
+			basePath:   "/root",
+			fullPath:   "/anotherroot/file.txt",
+			expected:   "",
+			shouldFail: true,
+		},
+		{
+			basePath:   "/root",
+			fullPath:   "/root",
+			expected:   "",
+			shouldFail: false,
+		},
+	}
+
+	for _, test := range tests {
+		relativePath, err := RelativePath(test.basePath, test.fullPath)
+
+		if test.shouldFail {
+			if err == nil {
+				t.Errorf("Expected an error, but got nil")
+			}
+		} else {
+			if err != nil {
+				t.Errorf("Unexpected error: %v", err)
+			}
+
+			if relativePath != test.expected {
+				t.Errorf("For BasePath %s and FullPath %s, expected %s but got %s", test.basePath, test.fullPath, test.expected, relativePath)
+			}
+		}
+	}
+}
+
 func createTempDirectory(t *testing.T) string {
 	tempDir := t.TempDir()
 	return tempDir
