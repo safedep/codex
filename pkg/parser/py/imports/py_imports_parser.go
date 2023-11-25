@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/safedep/codex/pkg/parser/py/utils/dir"
 	"github.com/safedep/dry/log"
@@ -19,8 +20,7 @@ import (
 
 const IMPORT_QUERY = `
 (import_statement 
-	name: (dotted_name 
-			(identifier) @module_name
+	name: ((dotted_name) @module_name
 	)
 )
 
@@ -115,12 +115,38 @@ func (cpf *CodeParser) FindDirectDependencies(ctx context.Context,
 	dirpath string, failOnFirstError bool, includeExtensions, excludeDirs []string) (map[string]string, error) {
 	// Start
 	rootPackages, _ := dir.FindTopLevelModules(dirpath)
-	_, err := cpf.findModulesRecursive(ctx, dirpath, failOnFirstError, includeExtensions, excludeDirs)
+	repoAnalysis, err := cpf.findModulesRecursive(ctx, dirpath, failOnFirstError, includeExtensions, excludeDirs)
 	if err != nil {
 		return rootPackages, nil
 	}
+	cpf.findUniqueModules(rootPackages, repoAnalysis)
 	// log.Debugf("%s", repoAnalysis)
 	return rootPackages, nil
+}
+
+func (cpf *CodeParser) findUniqueModules(rootPackages map[string]string, repoAnalysis *RepoCodeAnalysis) {
+	uniqueModNames := map[string]bool{}
+	for _, fa := range repoAnalysis.FilesAnalysis {
+		for _, mod := range fa.Modules {
+			isRelativeImport := false
+			isImportLocal := false
+			if strings.Contains(mod.Name.V, "models") {
+				fmt.Println(mod, fa.Path)
+			}
+			for pkg, _ := range rootPackages {
+				isRelativeImport = isRelativeImport || strings.HasPrefix(mod.Name.V, ".")
+				isImportLocal = isImportLocal || strings.HasPrefix(mod.Name.V, fmt.Sprintf("%s.", pkg)) || mod.Name.V == pkg
+			}
+
+			if !isRelativeImport && !isImportLocal {
+				topLevelPkg := dir.SplitAndGetLeftMost(mod.Name.V, ".")
+				uniqueModNames[topLevelPkg] = true
+			}
+		}
+	}
+
+	fmt.Println(rootPackages)
+	fmt.Println(uniqueModNames)
 }
 
 func (cpf *CodeParser) findModulesRecursive(ctx context.Context,
@@ -285,7 +311,7 @@ func (s *ParsedCode) ExtractModules() ([]*ImportedModule, error) {
 				RowStart: c.Node.StartPoint().Row,
 				RowEnd:   c.Node.EndPoint().Row}
 
-			// fmt.Printf("%d, %s %s\n", i, c.Node.Type(), c.Node.Content(s.code))
+			fmt.Printf("%d, %s %s\n", i, c.Node.Type(), c.Node.Content(s.code))
 
 			if i == 0 {
 				// Module Name

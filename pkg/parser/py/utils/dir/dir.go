@@ -61,3 +61,16 @@ func RelativePath(basePath, fullPath string) (string, error) {
 
 	return relativePath, nil
 }
+
+func SplitAndGetLeftMost(path, sep string) string {
+	// Split the path using the separator
+	parts := strings.Split(path, sep)
+
+	// Return the leftmost item (first element)
+	if len(parts) > 0 {
+		return parts[0]
+	}
+
+	// If there are no parts, return an empty string
+	return ""
+}
