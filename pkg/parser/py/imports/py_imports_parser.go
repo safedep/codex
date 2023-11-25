@@ -27,14 +27,23 @@ const IMPORT_QUERY = `
 (import_from_statement
 	 module_name: (dotted_name) @module_name
 	 name: (dotted_name 
-			(identifier) @submodule_name
+			(identifier) @submodule_name @submodule_alias
 	)
 )
 
 (import_from_statement
 	 module_name: (relative_import) @module_name
 	 name: (dotted_name 
-			(identifier) @submodule_name 
+			(identifier) @submodule_name @submodule_alias
+	)
+)
+
+(import_statement 
+	 name: (aliased_import
+			 name: (
+				 (dotted_name) @module_name @submodule_name
+			 )
+			 alias: (identifier) @submodule_alias
 	)
 )
 
@@ -52,13 +61,14 @@ const IMPORT_QUERY = `
 (import_from_statement
 	 module_name: (relative_import) @module_name
 	 name: (aliased_import
-			 name: (dotted_name 
-				(identifier) @submodule_name
-				)
+			 name: (
+				 (dotted_name) @submodule_name
+			 )
 			 alias: (identifier) @submodule_alias
 			 
 	)
-)	
+)
+
 `
 
 type TypedValue struct {
@@ -82,6 +92,27 @@ type FileCodeAnalysis struct {
 type RepoCodeAnalysis struct {
 	Path          string
 	FilesAnalysis []*FileCodeAnalysis
+}
+
+type DirectDependencies struct {
+	pkgNames map[string]bool
+}
+
+func NewDirectDependencies() *DirectDependencies {
+	return &DirectDependencies{pkgNames: make(map[string]bool, 0)}
+}
+
+func (dd *DirectDependencies) addDependency(pkg string, path string) {
+	dd.pkgNames[pkg] = true
+}
+
+func (dd *DirectDependencies) GetPackagesNames() []string {
+	pkgs := make([]string, 0)
+	for pkg, _ := range dd.pkgNames {
+		pkgs = append(pkgs, pkg)
+	}
+
+	return pkgs
 }
 
 type PyCodeParserFactory struct {
@@ -111,70 +142,96 @@ func (cpf *PyCodeParserFactory) NewCodeParser() (*CodeParser, error) {
 	return codeParser, nil
 }
 
+// FindDirectDependencies analyzes the code repository in the specified directory and returns its direct dependencies.
 func (cpf *CodeParser) FindDirectDependencies(ctx context.Context,
-	dirpath string, failOnFirstError bool, includeExtensions, excludeDirs []string) (map[string]string, error) {
-	// Start
+	dirpath string, failOnFirstError bool,
+	includeExtensions, excludeDirs []string) (*DirectDependencies, error) {
+	// Find top-level modules in the provided directory.
 	rootPackages, _ := dir.FindTopLevelModules(dirpath)
+
+	// Find modules recursively in the directory, filtering based on file extensions and excluding specified directories.
 	repoAnalysis, err := cpf.findModulesRecursive(ctx, dirpath, failOnFirstError, includeExtensions, excludeDirs)
 	if err != nil {
-		return rootPackages, nil
+		// If there is an error during analysis, return an error.
+		return nil, nil
 	}
-	cpf.findUniqueModules(rootPackages, repoAnalysis)
-	// log.Debugf("%s", repoAnalysis)
-	return rootPackages, nil
+
+	// Find unique modules/packages in the analyzed code files.
+	dd := cpf.findUniqueModules(rootPackages, repoAnalysis)
+
+	// Return the direct dependencies found.
+	return dd, nil
 }
 
-func (cpf *CodeParser) findUniqueModules(rootPackages map[string]string, repoAnalysis *RepoCodeAnalysis) {
+// findUniqueModules finds and returns unique modules/packages from the analyzed code files.
+func (cpf *CodeParser) findUniqueModules(rootPackages map[string]string,
+	repoAnalysis *RepoCodeAnalysis) *DirectDependencies {
+	// Create a new DirectDependencies instance to store the results.
+	dd := NewDirectDependencies()
+
+	// Create a map to track unique module/package names.
 	uniqueModNames := map[string]bool{}
+
+	// Iterate through the analyzed code files.
 	for _, fa := range repoAnalysis.FilesAnalysis {
 		for _, mod := range fa.Modules {
+			// Initialize flags to check for relative and local imports.
 			isRelativeImport := false
 			isImportLocal := false
-			if strings.Contains(mod.Name.V, "models") {
-				fmt.Println(mod, fa.Path)
-			}
-			for pkg, _ := range rootPackages {
+
+			// Iterate through the root packages to check for relative and local imports.
+			for pkg := range rootPackages {
 				isRelativeImport = isRelativeImport || strings.HasPrefix(mod.Name.V, ".")
 				isImportLocal = isImportLocal || strings.HasPrefix(mod.Name.V, fmt.Sprintf("%s.", pkg)) || mod.Name.V == pkg
 			}
 
+			// If it's neither a relative nor local import, consider it a direct dependency.
 			if !isRelativeImport && !isImportLocal {
+				// Extract the top-level package name.
 				topLevelPkg := dir.SplitAndGetLeftMost(mod.Name.V, ".")
+				// Add the top-level package as a direct dependency.
+				dd.addDependency(topLevelPkg, fa.Path)
+				// Mark the package name as unique.
 				uniqueModNames[topLevelPkg] = true
 			}
 		}
 	}
 
-	fmt.Println(rootPackages)
-	fmt.Println(uniqueModNames)
+	// Return the DirectDependencies instance containing the direct dependencies.
+	return dd
 }
 
+// findModulesRecursive recursively analyzes code files in a directory.
 func (cpf *CodeParser) findModulesRecursive(ctx context.Context,
 	rootDir string, failOnFirstError bool, includeExtensions, excludeDirs []string) (*RepoCodeAnalysis, error) {
-	// Find modules recursively
+	// Create a RepoCodeAnalysis instance to store the analysis results.
 	repoAnalysis := &RepoCodeAnalysis{Path: rootDir}
+
+	// Walk through the directory tree to analyze files and subdirectories.
 	err := filepath.Walk(rootDir, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
 		}
 
-		// Check if the directory should be excluded
+		// Check if the directory should be excluded based on the provided exclusion list.
 		if info.IsDir() && cpf.shouldExcludeDir(path, excludeDirs) {
 			log.Debugf("Skipping directory .. %s", path)
 			return filepath.SkipDir
 		}
 
-		// Check if the file should be included based on its extension
+		// Check if the file should be included based on its extension and analyze it if so.
 		if !info.IsDir() && cpf.shouldIncludeFile(path, includeExtensions) {
-			log.Debugf("Parsing file .. %s", path)
 			fa, err := cpf.findModulesInFile(ctx, rootDir, path)
 			if err != nil {
 				log.Debugf("Error while parsing the file %s", path)
 				if failOnFirstError {
+					// If failOnFirstError is true, return the error immediately.
 					return err
 				}
+				// If failOnFirstError is false, continue analyzing other files.
 				return nil
 			}
+			// Append the file analysis results to the repository analysis.
 			repoAnalysis.FilesAnalysis = append(repoAnalysis.FilesAnalysis, fa)
 		}
 
@@ -182,9 +239,11 @@ func (cpf *CodeParser) findModulesRecursive(ctx context.Context,
 	})
 
 	if err != nil {
+		// If there is an error during analysis, return the error.
 		return nil, err
 	}
 
+	// Return the RepoCodeAnalysis instance containing the analysis results.
 	return repoAnalysis, nil
 }
 
@@ -291,7 +350,6 @@ func (s *ParsedCode) ExtractModules() ([]*ImportedModule, error) {
 	q, err := sitter.NewQuery([]byte(IMPORT_QUERY), lang)
 	modules := make([]*ImportedModule, 0)
 	if err != nil {
-		fmt.Println(err)
 		return modules, err
 	}
 	qc := tree_sitter.NewQueryCursor()
@@ -311,7 +369,7 @@ func (s *ParsedCode) ExtractModules() ([]*ImportedModule, error) {
 				RowStart: c.Node.StartPoint().Row,
 				RowEnd:   c.Node.EndPoint().Row}
 
-			fmt.Printf("%d, %s %s\n", i, c.Node.Type(), c.Node.Content(s.code))
+			// fmt.Printf("%d, %s %s\n", i, c.Node.Type(), c.Node.Content(s.code))
 
 			if i == 0 {
 				// Module Name

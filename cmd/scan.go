@@ -89,7 +89,9 @@ func findDirectDeps() {
 	excludeDirs := []string{".git", "test"}
 
 	rootPkgs, _ := parser.FindDirectDependencies(ctx, filename, true, includeExtensions, excludeDirs)
-	fmt.Println(rootPkgs)
+	for _, k := range rootPkgs.GetPackagesNames() {
+		fmt.Println(k)
+	}
 }
 
 func scanFile() {
