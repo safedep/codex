@@ -4,6 +4,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
 )
 
 func TestFindPyModules(t *testing.T) {
@@ -12,22 +14,39 @@ func TestFindPyModules(t *testing.T) {
 	defer os.RemoveAll(rootDir)
 
 	// Create some directories and __init__.py files
-	createDirectoryWithInitPy(rootDir, "package1")
-	createDirectoryWithInitPy(rootDir, "package2")
-	createDirectoryWithInitPy(rootDir, "package3")
+	/*
+		rootDir/emptyDir1/
+		rootDir/emptyDir1/package1/__init__.py
+		rootDir/emptyDir1/package1/shouldnotpackage1/__init__.py
+		rootDir/emptyDir1/emptyDir2
+		rootDir/emptyDir1/emptyDir2/emptyDir3
+		rootDir/emptyDir1/emptyDir2/emptyDir3/package2/__init__.py
+		rootDir/emptyDir1/emptyDir2/emptyDir3/package3/__init__.py
+
+	*/
+	emptyDir1 := createEmptyDirectory(rootDir, "emptyDir1")
+	emptyDir2 := createEmptyDirectory(emptyDir1, "emptyDir2")
+	emptyDir3 := createEmptyDirectory(emptyDir2, "emptyDir3")
+	pkg1 := createDirectoryWithInitPy(emptyDir1, "package1")
+	createDirectoryWithInitPy(emptyDir3, "package2")
+	package3 := createDirectoryWithInitPy(emptyDir3, "package3")
+	shouldnotpackage31 := createDirectoryWithInitPy(package3, "shouldnotpackage31")
+	createDirectoryWithInitPy(shouldnotpackage31, "shouldnotpackage32")
+	createDirectoryWithInitPy(pkg1, "shouldnotpackage1")
 	createEmptyDirectory(rootDir, "emptyDir")
 
 	// Call the FindPyModules function
-	packageNames, err := FindRootModules(rootDir)
+	packageNames, err := FindTopLevelModules(rootDir)
 	if err != nil {
 		t.Fatalf("Error while finding Python modules: %v", err)
 	}
 
 	// Check the expected package names
 	expectedPackageNames := []string{"package1", "package2", "package3"}
+	assert.Equal(t, len(expectedPackageNames), len(packageNames))
 	for _, expectedName := range expectedPackageNames {
 		found := false
-		for _, packageName := range packageNames {
+		for packageName, _ := range packageNames {
 			if packageName == expectedName {
 				found = true
 				break
@@ -51,7 +70,7 @@ func createTempDirectory(t *testing.T) string {
 	return tempDir
 }
 
-func createDirectoryWithInitPy(rootDir, packageName string) {
+func createDirectoryWithInitPy(rootDir, packageName string) string {
 	packageDir := filepath.Join(rootDir, packageName)
 	if err := os.Mkdir(packageDir, os.ModePerm); err != nil {
 		panic(err)
@@ -61,11 +80,15 @@ func createDirectoryWithInitPy(rootDir, packageName string) {
 	if _, err := os.Create(initPyFile); err != nil {
 		panic(err)
 	}
+
+	return packageDir
 }
 
-func createEmptyDirectory(rootDir, directoryName string) {
+func createEmptyDirectory(rootDir, directoryName string) string {
 	directoryPath := filepath.Join(rootDir, directoryName)
 	if err := os.Mkdir(directoryPath, os.ModePerm); err != nil {
 		panic(err)
 	}
+
+	return directoryPath
 }

@@ -6,8 +6,10 @@ import (
 	"strings"
 )
 
-func FindRootModules(rootDir string) ([]string, error) {
-	packageNames := make([]string, 0)
+func FindTopLevelModules(rootDir string) (map[string]string, error) {
+	packageNames := make(map[string]string, 0)
+	processedDirs := make(map[string]bool)
+
 	err := filepath.Walk(rootDir, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
@@ -18,11 +20,17 @@ func FindRootModules(rootDir string) ([]string, error) {
 			initPyFile := filepath.Join(path, "__init__.py")
 			_, err := os.Stat(initPyFile)
 
-			if err == nil {
-				// Found an __init__.py file
-				packageName := filepath.Base(path)
-				packageNames = append(packageNames, packageName)
+			if err != nil {
+				return nil
 			}
+			// Found an __init__.py file
+			packageName := filepath.Base(path)
+			// Check if the directory is a top-level directory
+			parentDir := filepath.Dir(path)
+			if _, exists := processedDirs[parentDir]; !exists {
+				packageNames[packageName] = path
+			}
+			processedDirs[path] = true
 		}
 
 		return nil

@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/safedep/codex/pkg/parser/py/utils/dir"
 	"github.com/safedep/vet/pkg/common/logger"
 	sitter "github.com/smacker/go-tree-sitter"
 	tree_sitter "github.com/smacker/go-tree-sitter"
@@ -40,6 +41,11 @@ func (cpf *PyCodeParserFactory) NewCodeParser() (*CodeParser, error) {
 	parser.SetLanguage(lang)
 	codeParser := &CodeParser{parser: parser, lang: lang}
 	return codeParser, nil
+}
+
+func (cpf *CodeParser) FindDirectDependencies(ctx context.Context, dirpath string) (map[string]string, error) {
+	rootPackages, _ := dir.FindTopLevelModules(dirpath)
+	return rootPackages, nil
 }
 
 // ParseCode reads and parses code from the specified file path using a PyCodeParserFactory.

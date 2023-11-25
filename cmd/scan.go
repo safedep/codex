@@ -7,7 +7,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/safedep/codex/pkg/parser"
+	"github.com/safedep/codex/pkg/parser/py/imports"
 	"github.com/safedep/vet/pkg/common/logger"
 	"github.com/spf13/cobra"
 )
@@ -42,34 +42,39 @@ func scan() {
 	filename := input_file
 
 	ctx := context.Background()
-	cf := parser.CodeSnippetFactory{}
-	parsedCode, err := cf.ParseCode(ctx, filename)
+	cf := imports.NewPyCodeParserFactory()
+	parser, err := cf.NewCodeParser()
 	if err != nil {
 		logger.Warnf("Error while creating parser %v", err)
 		return
 	}
 
+	rootPkgs, _ := parser.FindDirectDependencies(ctx, filename)
+	fmt.Println(rootPkgs)
+
 	// parsedCode.Analyze()
-	parsedCode.Query(`
-	(import_statement
-		name: (dotted_name 
-				(identifier) @import_module
-		)
-	)
-	
-	(import_from_statement
-		 module_name: (dotted_name) @from_module
-		 name: (dotted_name 
-				(identifier) @import_submodule
-		)
-	)
-	
-	(import_from_statement
-		 module_name: (relative_import) @import_prefix
-		 name: (dotted_name 
-				(identifier) @import_submodule
-		)
-	)	
-	
-	`)
+	// parsedCode.Query(`
+	// (import_statement
+	// 	name: (dotted_name
+	// 			(identifier) @import_module
+	// 	)
+	// )
+
+	// (import_from_statement
+	// 	 module_name: (dotted_name) @from_module
+	// 	 name: (dotted_name
+	// 			(identifier) @import_submodule
+	// 	)
+	// )
+
+	// (import_from_statement
+	// 	 module_name: (relative_import) @import_prefix
+	// 	 name: (dotted_name
+	// 			(identifier) @import_submodule
+	// 	)
+	// )
+
+	// `)
+
+	// parsedCode.FindDirectDependencies()
 }
