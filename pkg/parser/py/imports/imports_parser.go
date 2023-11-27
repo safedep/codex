@@ -11,12 +11,17 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/safedep/codex/pkg/parser/py/utils/dir"
+	"github.com/safedep/codex/pkg/utils/py/dir"
 	"github.com/safedep/dry/log"
-	sitter "github.com/smacker/go-tree-sitter"
 	tree_sitter "github.com/smacker/go-tree-sitter"
 	"github.com/smacker/go-tree-sitter/python"
 )
+
+const FUNC_DEFINITION_QUERY = `
+(function_definition
+	name: (identifier) @method_name
+	parameters: (parameters) @method_params) @method
+`
 
 const IMPORT_QUERY = `
 (import_statement 
@@ -127,6 +132,7 @@ type ParsedCode struct {
 	codeTree *tree_sitter.Tree
 	code     []byte // Original Code Content
 	lang     *tree_sitter.Language
+	path     string // file path of the file
 }
 
 func NewPyCodeParserFactory() *PyCodeParserFactory {
@@ -318,7 +324,7 @@ func (cpf *CodeParser) ParseFile(ctx context.Context, filepath string) (*ParsedC
 	}
 
 	// Parse the code using the created parser
-	parsedCode, err := cpf.parseCode(ctx, nil, code)
+	parsedCode, err := cpf.parseCode(ctx, nil, code, filepath)
 	if err != nil {
 		log.Warnf("Error while parsing code: %v", err)
 		return nil, err
@@ -330,7 +336,8 @@ func (cpf *CodeParser) ParseFile(ctx context.Context, filepath string) (*ParsedC
 
 func (cp *CodeParser) parseCode(ctx context.Context,
 	parentTree *tree_sitter.Tree,
-	content []byte) (*ParsedCode, error) {
+	content []byte,
+	sourcePath string) (*ParsedCode, error) {
 	tree, err := cp.parser.ParseCtx(ctx, parentTree, content)
 	if err != nil {
 		log.Debugf("Error while parsing code %v", err)
@@ -340,14 +347,15 @@ func (cp *CodeParser) parseCode(ctx context.Context,
 	if tree.RootNode() == nil {
 		return nil, fmt.Errorf("Error parsing code. Found nil root node")
 	}
-	return &ParsedCode{codeTree: tree, code: content, lang: cp.lang}, nil
+	return &ParsedCode{codeTree: tree, code: content,
+		lang: cp.lang, path: sourcePath}, nil
 }
 
 func (s *ParsedCode) ExtractModules() ([]*ImportedModule, error) {
 	// Parse source code
 	lang := s.lang
 	// Execute the query
-	q, err := sitter.NewQuery([]byte(IMPORT_QUERY), lang)
+	q, err := tree_sitter.NewQuery([]byte(IMPORT_QUERY), lang)
 	modules := make([]*ImportedModule, 0)
 	if err != nil {
 		return modules, err

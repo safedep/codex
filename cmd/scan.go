@@ -111,4 +111,5 @@ func scanFile() {
 	}
 
 	parsedCode.ExtractModules()
+	parsedCode.MakeMethodMap()
 }
