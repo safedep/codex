@@ -2,12 +2,10 @@ package imports
 
 import (
 	"context"
-	"io/ioutil"
 	"os"
+	"path"
 	"testing"
 
-	tree_sitter "github.com/smacker/go-tree-sitter"
-	"github.com/smacker/go-tree-sitter/python"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -73,20 +71,9 @@ class PubSubPublisher(object):
 			self.publisher.publish(topic_path, data=data)
 `
 
-// MockCodeParserFactory implements CodeParserFactory for testing purposes.
-type MockCodeParserFactory struct{}
-
-func (mcpf *MockCodeParserFactory) NewCodeParser() (*CodeParser, error) {
-	lang := python.GetLanguage()
-	parser := tree_sitter.NewParser()
-	parser.SetLanguage(lang)
-	codeParser := &CodeParser{parser: parser, lang: lang}
-	return codeParser, nil
-}
-
 func TestParseFile(t *testing.T) {
 	// Create a temporary test file with Python code
-	tempFile := createTempPythonFile(t)
+	tempFile := createTempPythonFile(t, PY_CODE_BLOCK)
 	defer os.ReadFile(tempFile)
 
 	// Create a CodeParserFactory instance
@@ -100,7 +87,8 @@ func TestParseFile(t *testing.T) {
 
 	// Parse the test file
 	ctx := context.TODO()
-	parsedCode, err := codeParser.ParseFile(ctx, tempFile)
+	rootDir, relFilePath := path.Split(tempFile)
+	parsedCode, err := codeParser.ParseFile(ctx, rootDir, relFilePath)
 	if err != nil {
 		t.Fatalf("Error parsing file: %v", err)
 	}
@@ -123,7 +111,7 @@ func TestParseFile(t *testing.T) {
 
 func TestQuery(t *testing.T) {
 	// Create a temporary test file with Python code
-	tempFile := createTempPythonFile(t)
+	tempFile := createTempPythonFile(t, PY_CODE_BLOCK)
 	defer os.ReadFile(tempFile)
 
 	// Create a CodeParserFactory instance
@@ -137,7 +125,8 @@ func TestQuery(t *testing.T) {
 
 	// Parse the test file
 	ctx := context.TODO()
-	parsedCode, err := codeParser.ParseFile(ctx, tempFile)
+	rootDir, relFilePath := path.Split(tempFile)
+	parsedCode, err := codeParser.ParseFile(ctx, rootDir, relFilePath)
 	if err != nil {
 		t.Fatalf("Error parsing file: %v", err)
 	}
@@ -149,24 +138,6 @@ func TestQuery(t *testing.T) {
 	}
 
 	assert.Greater(t, len(modules), 0)
-}
-
-// Helper function to create a temporary test file with Python code
-func createTempPythonFile(t *testing.T) string {
-	tempFile, err := ioutil.TempFile("", "test_python_code_*.py")
-	if err != nil {
-		t.Fatalf("Error creating temp file: %v", err)
-	}
-
-	_, err = tempFile.WriteString(PY_CODE_BLOCK)
-	if err != nil {
-		t.Fatalf("Error writing to temp file: %v", err)
-	}
-
-	// Close the tempFile to release resources
-	tempFile.Close()
-
-	return tempFile.Name()
 }
 
 // Helper function to clean up the temporary test file

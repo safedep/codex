@@ -65,7 +65,7 @@ func (s *ParsedCode) MakeMethodMap() (*MethodMap, error) {
 			node:          methodNode,
 			name:          methodName,
 			invoketype:    invokeType,
-			argumentCount: int(method_params_node.ChildCount())}
+			argumentCount: int(method_params_node.NamedChildCount())}
 
 		methodDict[key] = methodInfo
 		methodIndex += 1

@@ -8,6 +8,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 
@@ -227,7 +228,12 @@ func (cpf *CodeParser) findModulesRecursive(ctx context.Context,
 
 		// Check if the file should be included based on its extension and analyze it if so.
 		if !info.IsDir() && cpf.shouldIncludeFile(path, includeExtensions) {
-			fa, err := cpf.findModulesInFile(ctx, rootDir, path)
+			relPath, err := dir.RelativePath(rootDir, path)
+			if err != nil {
+				log.Debugf("Error while getting relative path %s", err)
+				return err
+			}
+			fa, err := cpf.findModulesInFile(ctx, rootDir, relPath)
 			if err != nil {
 				log.Debugf("Error while parsing the file %s", path)
 				if failOnFirstError {
@@ -275,9 +281,9 @@ func (cpf *CodeParser) shouldIncludeFile(filePath string, includeExtensions []st
 }
 
 func (cpf *CodeParser) findModulesInFile(ctx context.Context,
-	rootDir string, filepath string) (*FileCodeAnalysis, error) {
+	rootDir string, relFilePath string) (*FileCodeAnalysis, error) {
 
-	parsedCode, err := cpf.ParseFile(ctx, filepath)
+	parsedCode, err := cpf.ParseFile(ctx, rootDir, relFilePath)
 	if err != nil {
 		log.Debugf("Error while parsing file to parsed code")
 		return nil, err
@@ -285,21 +291,18 @@ func (cpf *CodeParser) findModulesInFile(ctx context.Context,
 
 	modules, err := parsedCode.ExtractModules()
 	if err != nil {
-		log.Debugf("Error while extracting modules from the file %s", filepath)
+		log.Debugf("Error while extracting modules from the file %s %s", rootDir, relFilePath)
 		return nil, err
 	}
-	path, err := dir.RelativePath(rootDir, filepath)
-	if err != nil {
-		log.Debugf("Error while extracting relative path %s %s", rootDir, filepath)
-		return nil, err
-	}
-	fca := &FileCodeAnalysis{Modules: modules, Path: path}
+
+	fca := &FileCodeAnalysis{Modules: modules, Path: relFilePath}
 	return fca, nil
 
 }
 
 // ParseCode reads and parses code from the specified file path using a PyCodeParserFactory.
-func (cpf *CodeParser) ParseFile(ctx context.Context, filepath string) (*ParsedCode, error) {
+func (cpf *CodeParser) ParseFile(ctx context.Context, rootDir string, relFilePath string) (*ParsedCode, error) {
+	filepath := path.Join(rootDir, relFilePath)
 	// Open the file using os.Open method instead of ioutil.ReadFile
 	file, err := os.Open(filepath)
 	if err != nil {
@@ -324,7 +327,7 @@ func (cpf *CodeParser) ParseFile(ctx context.Context, filepath string) (*ParsedC
 	}
 
 	// Parse the code using the created parser
-	parsedCode, err := cpf.parseCode(ctx, nil, code, filepath)
+	parsedCode, err := cpf.parseCode(ctx, nil, code, relFilePath)
 	if err != nil {
 		log.Warnf("Error while parsing code: %v", err)
 		return nil, err
