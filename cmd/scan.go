@@ -6,6 +6,7 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"path"
 
 	"github.com/safedep/codex/pkg/parser/py/imports"
 	"github.com/safedep/dry/log"
@@ -95,8 +96,6 @@ func findDirectDeps() {
 }
 
 func scanFile() {
-	filename := input_file
-
 	ctx := context.Background()
 	cf := imports.NewPyCodeParserFactory()
 	parser, err := cf.NewCodeParser()
@@ -105,7 +104,8 @@ func scanFile() {
 		return
 	}
 
-	parsedCode, err := parser.ParseFile(ctx, filename)
+	basePath, filename := path.Split(input_file)
+	parsedCode, err := parser.ParseFile(ctx, basePath, filename)
 	if err != nil {
 		panic(err)
 	}

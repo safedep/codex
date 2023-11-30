@@ -50,5 +50,25 @@
 )
 
 
+(import_statement
+	name: (dotted_name 
+    		(identifier) @module_name
+    )
+)
+
+(import_from_statement
+	 module_name: (dotted_name) @module_name
+     name: (dotted_name 
+    		(identifier) @submodule_name
+    )
+)
+
+(import_from_statement
+	 module_name: (relative_import) @module_name
+     name: (dotted_name 
+    		(identifier) @submodule_name
+    )
+)
+
 
 
