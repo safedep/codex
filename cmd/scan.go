@@ -89,8 +89,15 @@ func findDirectDeps() {
 	includeExtensions := []string{".py"}
 	excludeDirs := []string{".git", "test"}
 
-	rootPkgs, _ := parser.FindDirectDependencies(ctx, filename, true, includeExtensions, excludeDirs)
+	rootPkgs, _ := parser.FindImportedModules(ctx, filename, true, includeExtensions, excludeDirs)
+	fmt.Println("Imported Modules:")
 	for _, k := range rootPkgs.GetPackagesNames() {
+		fmt.Println(k)
+	}
+
+	exportedModules, _ := parser.FindExportedModules(ctx, filename)
+	fmt.Println("Exported Modules:")
+	for _, k := range exportedModules.GetExportedModules() {
 		fmt.Println(k)
 	}
 }

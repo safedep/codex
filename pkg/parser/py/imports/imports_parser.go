@@ -100,19 +100,40 @@ type RepoCodeAnalysis struct {
 	FilesAnalysis []*FileCodeAnalysis
 }
 
-type DirectDependencies struct {
+type ImportedModules struct {
 	pkgNames map[string]bool
 }
 
-func NewDirectDependencies() *DirectDependencies {
-	return &DirectDependencies{pkgNames: make(map[string]bool, 0)}
+func NewImportedModules() *ImportedModules {
+	return &ImportedModules{pkgNames: make(map[string]bool, 0)}
 }
 
-func (dd *DirectDependencies) addDependency(pkg string, path string) {
+func (dd *ImportedModules) addDependency(pkg string, path string) {
 	dd.pkgNames[pkg] = true
 }
 
-func (dd *DirectDependencies) GetPackagesNames() []string {
+func (dd *ImportedModules) GetPackagesNames() []string {
+	pkgs := make([]string, 0)
+	for pkg, _ := range dd.pkgNames {
+		pkgs = append(pkgs, pkg)
+	}
+
+	return pkgs
+}
+
+type ExportedModules struct {
+	pkgNames map[string]string
+}
+
+func NewExportedModules() *ExportedModules {
+	return &ExportedModules{pkgNames: make(map[string]string, 0)}
+}
+
+func (dd *ExportedModules) addModule(pkg string, path string) {
+	dd.pkgNames[pkg] = path
+}
+
+func (dd *ExportedModules) GetExportedModules() []string {
 	pkgs := make([]string, 0)
 	for pkg, _ := range dd.pkgNames {
 		pkgs = append(pkgs, pkg)
@@ -149,10 +170,10 @@ func (cpf *PyCodeParserFactory) NewCodeParser() (*CodeParser, error) {
 	return codeParser, nil
 }
 
-// FindDirectDependencies analyzes the code repository in the specified directory and returns its direct dependencies.
-func (cpf *CodeParser) FindDirectDependencies(ctx context.Context,
+// FindImportedModules analyzes the code repository in the specified directory and returns its direct dependencies.
+func (cpf *CodeParser) FindImportedModules(ctx context.Context,
 	dirpath string, failOnFirstError bool,
-	includeExtensions, excludeDirs []string) (*DirectDependencies, error) {
+	includeExtensions, excludeDirs []string) (*ImportedModules, error) {
 	// Find top-level modules in the provided directory.
 	rootPackages, _ := dir.FindTopLevelModules(dirpath)
 
@@ -170,11 +191,24 @@ func (cpf *CodeParser) FindDirectDependencies(ctx context.Context,
 	return dd, nil
 }
 
+// FindImportedModules analyzes the code repository in the specified directory and returns its direct dependencies.
+func (cpf *CodeParser) FindExportedModules(ctx context.Context,
+	dirpath string) (*ExportedModules, error) {
+	// Find top-level modules in the provided directory.
+	rootPackages, _ := dir.FindTopLevelModules(dirpath)
+	exportedModules := NewExportedModules()
+	for name, path := range rootPackages {
+		exportedModules.addModule(name, path)
+	}
+	// Return the direct dependencies found.
+	return exportedModules, nil
+}
+
 // findUniqueModules finds and returns unique modules/packages from the analyzed code files.
 func (cpf *CodeParser) findUniqueModules(rootPackages map[string]string,
-	repoAnalysis *RepoCodeAnalysis) *DirectDependencies {
-	// Create a new DirectDependencies instance to store the results.
-	dd := NewDirectDependencies()
+	repoAnalysis *RepoCodeAnalysis) *ImportedModules {
+	// Create a new ImportedModules instance to store the results.
+	dd := NewImportedModules()
 
 	// Create a map to track unique module/package names.
 	uniqueModNames := map[string]bool{}
@@ -204,7 +238,7 @@ func (cpf *CodeParser) findUniqueModules(rootPackages map[string]string,
 		}
 	}
 
-	// Return the DirectDependencies instance containing the direct dependencies.
+	// Return the ImportedModules instance containing the direct dependencies.
 	return dd
 }
 
