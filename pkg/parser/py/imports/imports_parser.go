@@ -8,15 +8,21 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 
-	"github.com/safedep/codex/pkg/parser/py/utils/dir"
+	"github.com/safedep/codex/pkg/utils/py/dir"
 	"github.com/safedep/dry/log"
-	sitter "github.com/smacker/go-tree-sitter"
 	tree_sitter "github.com/smacker/go-tree-sitter"
 	"github.com/smacker/go-tree-sitter/python"
 )
+
+const FUNC_DEFINITION_QUERY = `
+(function_definition
+	name: (identifier) @method_name
+	parameters: (parameters) @method_params) @method
+`
 
 const IMPORT_QUERY = `
 (import_statement 
@@ -94,19 +100,40 @@ type RepoCodeAnalysis struct {
 	FilesAnalysis []*FileCodeAnalysis
 }
 
-type DirectDependencies struct {
+type ImportedModules struct {
 	pkgNames map[string]bool
 }
 
-func NewDirectDependencies() *DirectDependencies {
-	return &DirectDependencies{pkgNames: make(map[string]bool, 0)}
+func NewImportedModules() *ImportedModules {
+	return &ImportedModules{pkgNames: make(map[string]bool, 0)}
 }
 
-func (dd *DirectDependencies) addDependency(pkg string, path string) {
+func (dd *ImportedModules) addDependency(pkg string, path string) {
 	dd.pkgNames[pkg] = true
 }
 
-func (dd *DirectDependencies) GetPackagesNames() []string {
+func (dd *ImportedModules) GetPackagesNames() []string {
+	pkgs := make([]string, 0)
+	for pkg, _ := range dd.pkgNames {
+		pkgs = append(pkgs, pkg)
+	}
+
+	return pkgs
+}
+
+type ExportedModules struct {
+	pkgNames map[string]string
+}
+
+func NewExportedModules() *ExportedModules {
+	return &ExportedModules{pkgNames: make(map[string]string, 0)}
+}
+
+func (dd *ExportedModules) addModule(pkg string, path string) {
+	dd.pkgNames[pkg] = path
+}
+
+func (dd *ExportedModules) GetExportedModules() []string {
 	pkgs := make([]string, 0)
 	for pkg, _ := range dd.pkgNames {
 		pkgs = append(pkgs, pkg)
@@ -127,6 +154,7 @@ type ParsedCode struct {
 	codeTree *tree_sitter.Tree
 	code     []byte // Original Code Content
 	lang     *tree_sitter.Language
+	path     string // file path of the file
 }
 
 func NewPyCodeParserFactory() *PyCodeParserFactory {
@@ -142,10 +170,10 @@ func (cpf *PyCodeParserFactory) NewCodeParser() (*CodeParser, error) {
 	return codeParser, nil
 }
 
-// FindDirectDependencies analyzes the code repository in the specified directory and returns its direct dependencies.
-func (cpf *CodeParser) FindDirectDependencies(ctx context.Context,
+// FindImportedModules analyzes the code repository in the specified directory and returns its direct dependencies.
+func (cpf *CodeParser) FindImportedModules(ctx context.Context,
 	dirpath string, failOnFirstError bool,
-	includeExtensions, excludeDirs []string) (*DirectDependencies, error) {
+	includeExtensions, excludeDirs []string) (*ImportedModules, error) {
 	// Find top-level modules in the provided directory.
 	rootPackages, _ := dir.FindTopLevelModules(dirpath)
 
@@ -163,11 +191,24 @@ func (cpf *CodeParser) FindDirectDependencies(ctx context.Context,
 	return dd, nil
 }
 
+// FindImportedModules analyzes the code repository in the specified directory and returns its direct dependencies.
+func (cpf *CodeParser) FindExportedModules(ctx context.Context,
+	dirpath string) (*ExportedModules, error) {
+	// Find top-level modules in the provided directory.
+	rootPackages, _ := dir.FindTopLevelModules(dirpath)
+	exportedModules := NewExportedModules()
+	for name, path := range rootPackages {
+		exportedModules.addModule(name, path)
+	}
+	// Return the direct dependencies found.
+	return exportedModules, nil
+}
+
 // findUniqueModules finds and returns unique modules/packages from the analyzed code files.
 func (cpf *CodeParser) findUniqueModules(rootPackages map[string]string,
-	repoAnalysis *RepoCodeAnalysis) *DirectDependencies {
-	// Create a new DirectDependencies instance to store the results.
-	dd := NewDirectDependencies()
+	repoAnalysis *RepoCodeAnalysis) *ImportedModules {
+	// Create a new ImportedModules instance to store the results.
+	dd := NewImportedModules()
 
 	// Create a map to track unique module/package names.
 	uniqueModNames := map[string]bool{}
@@ -197,7 +238,7 @@ func (cpf *CodeParser) findUniqueModules(rootPackages map[string]string,
 		}
 	}
 
-	// Return the DirectDependencies instance containing the direct dependencies.
+	// Return the ImportedModules instance containing the direct dependencies.
 	return dd
 }
 
@@ -221,7 +262,12 @@ func (cpf *CodeParser) findModulesRecursive(ctx context.Context,
 
 		// Check if the file should be included based on its extension and analyze it if so.
 		if !info.IsDir() && cpf.shouldIncludeFile(path, includeExtensions) {
-			fa, err := cpf.findModulesInFile(ctx, rootDir, path)
+			relPath, err := dir.RelativePath(rootDir, path)
+			if err != nil {
+				log.Debugf("Error while getting relative path %s", err)
+				return err
+			}
+			fa, err := cpf.findModulesInFile(ctx, rootDir, relPath)
 			if err != nil {
 				log.Debugf("Error while parsing the file %s", path)
 				if failOnFirstError {
@@ -269,9 +315,9 @@ func (cpf *CodeParser) shouldIncludeFile(filePath string, includeExtensions []st
 }
 
 func (cpf *CodeParser) findModulesInFile(ctx context.Context,
-	rootDir string, filepath string) (*FileCodeAnalysis, error) {
+	rootDir string, relFilePath string) (*FileCodeAnalysis, error) {
 
-	parsedCode, err := cpf.ParseFile(ctx, filepath)
+	parsedCode, err := cpf.ParseFile(ctx, rootDir, relFilePath)
 	if err != nil {
 		log.Debugf("Error while parsing file to parsed code")
 		return nil, err
@@ -279,21 +325,18 @@ func (cpf *CodeParser) findModulesInFile(ctx context.Context,
 
 	modules, err := parsedCode.ExtractModules()
 	if err != nil {
-		log.Debugf("Error while extracting modules from the file %s", filepath)
+		log.Debugf("Error while extracting modules from the file %s %s", rootDir, relFilePath)
 		return nil, err
 	}
-	path, err := dir.RelativePath(rootDir, filepath)
-	if err != nil {
-		log.Debugf("Error while extracting relative path %s %s", rootDir, filepath)
-		return nil, err
-	}
-	fca := &FileCodeAnalysis{Modules: modules, Path: path}
+
+	fca := &FileCodeAnalysis{Modules: modules, Path: relFilePath}
 	return fca, nil
 
 }
 
 // ParseCode reads and parses code from the specified file path using a PyCodeParserFactory.
-func (cpf *CodeParser) ParseFile(ctx context.Context, filepath string) (*ParsedCode, error) {
+func (cpf *CodeParser) ParseFile(ctx context.Context, rootDir string, relFilePath string) (*ParsedCode, error) {
+	filepath := path.Join(rootDir, relFilePath)
 	// Open the file using os.Open method instead of ioutil.ReadFile
 	file, err := os.Open(filepath)
 	if err != nil {
@@ -318,7 +361,7 @@ func (cpf *CodeParser) ParseFile(ctx context.Context, filepath string) (*ParsedC
 	}
 
 	// Parse the code using the created parser
-	parsedCode, err := cpf.parseCode(ctx, nil, code)
+	parsedCode, err := cpf.parseCode(ctx, nil, code, relFilePath)
 	if err != nil {
 		log.Warnf("Error while parsing code: %v", err)
 		return nil, err
@@ -330,7 +373,8 @@ func (cpf *CodeParser) ParseFile(ctx context.Context, filepath string) (*ParsedC
 
 func (cp *CodeParser) parseCode(ctx context.Context,
 	parentTree *tree_sitter.Tree,
-	content []byte) (*ParsedCode, error) {
+	content []byte,
+	sourcePath string) (*ParsedCode, error) {
 	tree, err := cp.parser.ParseCtx(ctx, parentTree, content)
 	if err != nil {
 		log.Debugf("Error while parsing code %v", err)
@@ -340,14 +384,15 @@ func (cp *CodeParser) parseCode(ctx context.Context,
 	if tree.RootNode() == nil {
 		return nil, fmt.Errorf("Error parsing code. Found nil root node")
 	}
-	return &ParsedCode{codeTree: tree, code: content, lang: cp.lang}, nil
+	return &ParsedCode{codeTree: tree, code: content,
+		lang: cp.lang, path: sourcePath}, nil
 }
 
 func (s *ParsedCode) ExtractModules() ([]*ImportedModule, error) {
 	// Parse source code
 	lang := s.lang
 	// Execute the query
-	q, err := sitter.NewQuery([]byte(IMPORT_QUERY), lang)
+	q, err := tree_sitter.NewQuery([]byte(IMPORT_QUERY), lang)
 	modules := make([]*ImportedModule, 0)
 	if err != nil {
 		return modules, err

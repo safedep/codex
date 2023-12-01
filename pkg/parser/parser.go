@@ -11,7 +11,6 @@ import (
 	"strings"
 
 	"github.com/safedep/vet/pkg/common/logger"
-	sitter "github.com/smacker/go-tree-sitter"
 	tree_sitter "github.com/smacker/go-tree-sitter"
 	"github.com/smacker/go-tree-sitter/python"
 )
@@ -126,7 +125,7 @@ func (s *ParsedCode) Query(query string) error {
 	// Parse source code
 	lang := s.lang
 	// Execute the query
-	q, err := sitter.NewQuery([]byte(query), lang)
+	q, err := tree_sitter.NewQuery([]byte(query), lang)
 	if err != nil {
 		fmt.Println(err)
 		return err
