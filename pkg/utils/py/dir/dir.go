@@ -1,10 +1,13 @@
 package dir
 
 import (
+	"bufio"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/safedep/dry/log"
 )
 
 func FindTopLevelModules(rootDir string) (map[string]string, error) {
@@ -14,6 +17,21 @@ func FindTopLevelModules(rootDir string) (map[string]string, error) {
 	err := filepath.Walk(rootDir, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
+		}
+
+		isTopLevelTxt := (strings.HasSuffix(path, "egg-info/top_level.txt") ||
+			strings.HasSuffix(path, "dist-info/top_level.txt"))
+
+		if !info.IsDir() && isTopLevelTxt {
+			pkgs, err := ReadAllLines(path)
+			if err != nil {
+				log.Debugf("Error while reading top_level.txt file.. %s", err)
+				return nil
+			}
+			for _, pkg := range pkgs {
+				relativePath, _ := RelativePath(rootDir, path)
+				packageNames[pkg] = relativePath
+			}
 		}
 
 		if info.IsDir() && !strings.Contains(path, "__init__.py") {
@@ -43,6 +61,24 @@ func FindTopLevelModules(rootDir string) (map[string]string, error) {
 	}
 
 	return packageNames, nil
+}
+
+func ReadAllLines(filepath string) ([]string, error) {
+	var lines []string
+	readFile, err := os.Open(filepath)
+
+	if err != nil {
+		return lines, err
+	}
+	defer readFile.Close()
+
+	fileScanner := bufio.NewScanner(readFile)
+	fileScanner.Split(bufio.ScanLines)
+	for fileScanner.Scan() {
+		lines = append(lines, fileScanner.Text())
+	}
+
+	return lines, nil
 }
 
 func RelativePath(basePath, fullPath string) (string, error) {
